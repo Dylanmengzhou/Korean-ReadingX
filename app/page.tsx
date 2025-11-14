@@ -1,468 +1,378 @@
 "use client";
+import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
+import { useState, useEffect } from "react";
+import { useSession, signOut } from "next-auth/react";
+import Image from "next/image";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+export default function Page() {
+  const router = useRouter();
+  const { data: session, status } = useSession();
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [wiggle1, setWiggle1] = useState(false);
+  const [wiggle2, setWiggle2] = useState(false);
+  const [favoriteCount, setFavoriteCount] = useState(0);
 
-type WordStructureComponent = {
-  text?: string;
-  type?: string;
-  function?: string;
-};
+  const handleClick = (src: string) => {
+    router.push(src);
+  };
 
-type WordStructure = {
-  summary?: string;
-  components?: WordStructureComponent[];
-};
+  const handleLogout = async () => {
+    await signOut({ redirect: false });
+    router.push("/");
+    router.refresh();
+  };
 
-type Collocation = {
-  korean: string;
-  chinese: string;
-};
-
-type ExampleSentence = {
-  korean: string;
-  chinese: string;
-};
-
-type WordDetail = {
-  word: string;
-  baseForm?: string;
-  pronunciation?: string | null;
-  meanings: string[];
-  yx?: string | null;
-  posPrimary?: string | null;
-  posSecondary?: string | null;
-  summary?: string;
-  wordStructure?: WordStructure | null;
-  collocations: Collocation[];
-  examples: ExampleSentence[];
-  source: string;
-};
-
-type ApiWordResponse = WordDetail;
-
-type AudioState = {
-  status: "idle" | "loading" | "playing" | "error";
-  target?: string;
-  message?: string;
-};
-
-const KOREAN_TEXT = `오늘 아침 공원에는 따뜻한 햇살이 가득했다. 사람들은 가벼운 발걸음으로 산책을 즐기고, 아이들은 잔디밭에서 웃음소리를 퍼뜨렸다. 한쪽 벤치에 앉아 있던 지훈은 책을 펼치고 조용히 문장을 따라가며 마음을 가다듬었다. 그는 새로운 단어를 만날 때마다 뜻을 떠올리고, 그 단어가 만들어낼 이야기를 상상하는 것을 좋아했다.`;
-
-const tokenizeText = (text: string) =>
-  text.match(/\w+|\s+|[^\s\w]+/g) ?? [text];
-
-const normalizeWord = (input: string) =>
-  input
-    .toLowerCase()
-    .replace(/[^a-z\u00c0-\u024f\u3130-\u318f\uac00-\ud7a3]/g, "");
-
-export default function Home() {
-  const tokens = useMemo(() => tokenizeText(KOREAN_TEXT), []);
-  const [selectedWord, setSelectedWord] = useState<string | null>(null);
-  const [definitionCache, setDefinitionCache] = useState<
-    Record<string, WordDetail>
-  >({});
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [definitionState, setDefinitionState] = useState<{
-    status: "idle" | "loading" | "ready" | "error";
-    data: WordDetail | null;
-    message?: string;
-  }>({ status: "idle", data: null });
-  const [audioState, setAudioState] = useState<AudioState>({
-    status: "idle",
-  });
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
-
+  // 随机抖动效果
   useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = "";
-      }
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
+    const triggerWiggle = () => {
+      const randomCircle = Math.random() > 0.5 ? 1 : 2;
+
+      if (randomCircle === 1) {
+        setWiggle1(true);
+        setTimeout(() => setWiggle1(false), 500);
+      } else {
+        setWiggle2(true);
+        setTimeout(() => setWiggle2(false), 500);
       }
     };
-  }, [audioUrl]);
 
-  const fetchKoreanDefinitions = async (word: string): Promise<WordDetail> => {
-    const response = await fetch(`/api/naver?word=${encodeURIComponent(word)}`);
-    if (!response.ok) {
-      const errorPayload = await response.json().catch(() => null);
-      throw new Error(errorPayload?.error ?? "查询韩文词典失败，请稍后重试。");
-    }
+    // 初始延迟后开始随机抖动
+    const initialDelay = setTimeout(() => {
+      triggerWiggle();
 
-    const payload: ApiWordResponse = await response.json();
-    if (!payload.meanings?.length) {
-      throw new Error("这个单词没有找到可用释义。");
-    }
-
-    return {
-      word: payload.word,
-      baseForm: payload.baseForm,
-      pronunciation: payload.pronunciation,
-      meanings: payload.meanings,
-      yx: payload.yx,
-      posPrimary: payload.posPrimary,
-      posSecondary: payload.posSecondary,
-      summary: payload.summary,
-      wordStructure: payload.wordStructure,
-      collocations: payload.collocations ?? [],
-      examples: payload.examples ?? [],
-      source: payload.source,
-    };
-  };
-
-  const playPronunciation = async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) {
-      return;
-    }
-
-    try {
-      setAudioState({ status: "loading", target: trimmed });
-      audioRef.current?.pause();
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-        setAudioUrl(null);
-      }
-
-      const response = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: trimmed }),
-      });
-
-      if (!response.ok) {
-        throw new Error("暂时无法获取读音。");
-      }
-
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      setAudioUrl(url);
-
-      if (!audioRef.current) {
-        audioRef.current = new Audio();
-      }
-
-      audioRef.current.src = url;
-      await audioRef.current.play();
-      setAudioState({ status: "playing", target: trimmed });
-      audioRef.current.onended = () => {
-        setAudioState({ status: "idle" });
+      // 每3-8秒随机抖动一次
+      const scheduleNextWiggle = () => {
+        const delay = 3000 + Math.random() * 5000;
+        setTimeout(() => {
+          triggerWiggle();
+          scheduleNextWiggle();
+        }, delay);
       };
-    } catch (error) {
-      setAudioState({
-        status: "error",
-        target: trimmed,
-        message:
-          error instanceof Error
-            ? error.message
-            : "播放读音时出现问题。",
-      });
-    }
-  };
 
-  const handleWordClick = async (word: string) => {
-    const normalizedWord = normalizeWord(word);
-    if (!normalizedWord) {
-      return;
-    }
+      scheduleNextWiggle();
+    }, 2000);
 
-    setSelectedWord(word);
+    return () => clearTimeout(initialDelay);
+  }, []);
 
-    if (definitionCache[normalizedWord]) {
-      const cached = definitionCache[normalizedWord];
-      setDefinitionState({
-        status: "ready",
-        data: cached,
-      });
-      return;
-    }
+  // 获取收藏数量
+  useEffect(() => {
+    const fetchFavoriteCount = async () => {
+      if (!session?.user) {
+        setFavoriteCount(0);
+        return;
+      }
 
-    setDefinitionState({ status: "loading", data: null });
+      try {
+        const res = await fetch("/api/favorites");
+        if (res.ok) {
+          const data = await res.json();
+          const favorites = Array.isArray(data) ? data : [];
+          setFavoriteCount(favorites.length);
+        }
+      } catch (error) {
+        console.error("获取收藏数量失败:", error);
+        setFavoriteCount(0);
+      }
+    };
 
-    try {
-      const result = await fetchKoreanDefinitions(word);
-      setDefinitionCache((prev) => ({ ...prev, [normalizedWord]: result }));
-      setDefinitionState({
-        status: "ready",
-        data: result,
-      });
-    } catch (error) {
-      setDefinitionState({
-        status: "error",
-        data: null,
-        message:
-          error instanceof Error ? error.message : "查询释义时出现了未知错误。",
-      });
-    }
-  };
+    fetchFavoriteCount();
+  }, [session]);
 
-  const handleCloseTooltip = () => {
-    setSelectedWord(null);
-    setDefinitionState((prev) =>
-      prev.status === "idle" ? prev : { status: "idle", data: null }
+  // 如果用户未登录，显示登录背景页面
+  if (status === "loading") {
+    return (
+      <div className="h-svh bg-[#F5EFE1] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-[#8B7355] border-t-transparent rounded-full animate-spin" />
+          <p
+            className="text-[#8B7355]"
+            style={{ fontFamily: "WenXinXiLeTi, sans-serif" }}
+          >
+            加载中...
+          </p>
+        </div>
+      </div>
     );
-  };
+  }
 
-  const currentData = definitionState.data;
-  const chineseMeaning =
-    currentData?.meanings?.length && currentData.meanings.join("、");
-  const structureSummary =
-    currentData?.wordStructure?.summary ??
-    currentData?.summary ??
-    chineseMeaning ??
-    "";
-  const structureComponents = currentData?.wordStructure?.components ?? [];
-  const exampleEntries = currentData?.examples ?? [];
-  const collocations = currentData?.collocations ?? [];
-  const partOfSpeechBadges = [
-    currentData?.posPrimary,
-    currentData?.posSecondary,
-  ].filter(Boolean) as string[];
+  if (!session) {
+    return (
+      <div className="h-svh bg-[#F5EFE1] flex flex-col items-center justify-center p-8 relative">
+        {/* 标题 */}
+        <h1
+          className="text-6xl md:text-7xl font-bold text-center mb-20"
+          style={{
+            fontFamily: "WenXinXiLeTi, sans-serif",
+            color: "#000000",
+          }}
+        >
+          <span className="block md:inline">阅读</span>
+          <span className="block md:inline">才是王道</span>
+        </h1>
+
+        {/* 登录按钮 - 使用墨迹圆形背景 */}
+        <div
+          className="relative w-30 h-30 flex items-center justify-center cursor-pointer transition-transform hover:scale-105 animate-float"
+          onClick={() => router.push("/auth/login")}
+        >
+          <Image
+            src="/login_bg.svg"
+            alt="登录"
+            width={120}
+            height={120}
+            className="w-full h-full object-contain absolute"
+          />
+          <span
+            className="relative z-10 text-4xl font-bold text-white"
+            style={{ fontFamily: "WenXinXiLeTi, sans-serif" }}
+          >
+            登录
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50 px-5 py-12">
-      <div
-        ref={containerRef}
-        className="relative mx-auto max-w-3xl text-lg leading-8 text-slate-900"
+    <div className="h-svh">
+      <Drawer
+        open={isDrawerOpen}
+        onOpenChange={setIsDrawerOpen}
+        direction="right"
       >
-        <p className="text-sm text-slate-500">点击任意单词，浮窗会显示释义</p>
-        <div className="mt-6 whitespace-pre-wrap">
-          {tokens.map((token, index) => {
-            const normalized = normalizeWord(token);
-            const isWord = Boolean(normalized);
-
-            if (!isWord) {
-              return (
-                <span key={`${token}-${index}`} aria-hidden={!token.trim()}>
-                  {token}
-                </span>
-              );
-            }
-
-            const isSelected =
-              selectedWord && normalizeWord(selectedWord) === normalized;
-
-            return (
-              <button
-                key={`${token}-${index}`}
-                type="button"
-                onClick={() => handleWordClick(token)}
-                className={`inline cursor-pointer border-none bg-transparent p-0 text-left text-inherit underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 ${
-                  isSelected
-                    ? "text-indigo-700 underline decoration-indigo-400"
-                    : "text-slate-900 hover:underline decoration-slate-400"
-                }`}
-              >
-                {token}
-              </button>
-            );
-          })}
+        <div className="absolute top-0 right-0 p-4">
+          <DrawerTrigger asChild>
+            <Avatar className="cursor-pointer">
+              <AvatarImage
+                src={session.user.image || "https://github.com/shadcn.png"}
+                alt={session.user.name || "用户"}
+              />
+              <AvatarFallback>
+                {session.user.name?.[0]?.toUpperCase() ||
+                  session.user.email?.[0]?.toUpperCase() ||
+                  "U"}
+              </AvatarFallback>
+            </Avatar>
+          </DrawerTrigger>
         </div>
 
-        {selectedWord && (
-          <div className="fixed inset-0 z-30 flex items-center justify-center px-4 py-8">
-            <button
-              type="button"
-              aria-label="关闭释义"
-              onClick={handleCloseTooltip}
-              className="absolute inset-0 -z-10 bg-slate-900/25 backdrop-blur-sm"
-            />
-            <div className="relative w-full max-w-[90%] max-h-[90%] overflow-y-auto rounded-2xl border border-amber-100 bg-white/95 p-5 text-sm text-slate-800 shadow-[0_20px_50px_rgba(15,23,42,0.15)]">
-              <button
-                type="button"
-                onClick={handleCloseTooltip}
-                className="absolute right-4 top-4 text-slate-300 transition hover:text-slate-500"
-                aria-label="关闭释义"
+        <DrawerContent className="h-full w-[80%] sm:w-[400px] fixed right-0 top-0 rounded-l-[10px]">
+          <div className="h-full flex flex-col p-6">
+            <DrawerHeader className="p-0 mb-6">
+              <DrawerTitle className="sr-only">用户菜单</DrawerTitle>
+              {/* 头像区域 */}
+              <div className="flex items-center justify-center gap-4">
+                <Avatar className="w-16 h-16">
+                  <AvatarImage
+                    src={session.user.image || "https://github.com/shadcn.png"}
+                    alt={session.user.name || "用户"}
+                  />
+                  <AvatarFallback>
+                    {session.user.name?.[0]?.toUpperCase() ||
+                      session.user.email?.[0]?.toUpperCase() ||
+                      "U"}
+                  </AvatarFallback>
+                </Avatar>
+              </div>
+            </DrawerHeader>
+
+            {/* 菜单项 */}
+            <div className="flex flex-col gap-4 mb-6">
+              <DrawerClose asChild>
+                <Button
+                  variant="outline"
+                  onClick={() => router.push("/favorites")}
+                >
+                  收藏夹
+                </Button>
+              </DrawerClose>
+              <Button variant="outline">设置</Button>
+              <Button variant="outline">帮助</Button>
+            </div>
+
+            {/* 退出登录按钮 - 放在最下面 */}
+            <div className="mt-auto">
+              <Button
+                variant="destructive"
+                className="w-full"
+                onClick={handleLogout}
               >
-                ×
-              </button>
-
-              {definitionState.status === "loading" && (
-                <div className="flex items-center gap-3 text-slate-500">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-amber-200 border-t-transparent" />
-                  <p>正在为“{selectedWord}”查找释义…</p>
-                </div>
-              )}
-
-              {definitionState.status === "error" && (
-                <div className="space-y-2">
-                  <p className="text-base font-semibold text-red-600">
-                    查询失败
-                  </p>
-                  <p className="text-sm text-slate-600">
-                    {definitionState.message}
-                  </p>
-                </div>
-              )}
-
-              {definitionState.status === "ready" && currentData && (
-                <div className="space-y-5">
-                  <header className="space-y-1">
-                    {currentData.pronunciation && (
-                      <p className="text-xs uppercase tracking-[0.3em] text-amber-600">
-                        {currentData.pronunciation}
-                      </p>
-                    )}
-                    <div className="flex flex-wrap items-baseline gap-2">
-                      <p className="text-2xl font-semibold text-slate-900">
-                        {selectedWord}
-                      </p>
-                      {chineseMeaning && (
-                        <p className="text-base text-slate-500">
-                          ({chineseMeaning})
-                        </p>
-                      )}
-                    </div>
-                    {partOfSpeechBadges.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {partOfSpeechBadges.map((pos, idx) => (
-                          <span
-                            key={`${pos}-${idx}`}
-                            className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700"
-                          >
-                            {pos}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </header>
-
-                  <hr className="border-amber-100" />
-
-                  <section className="space-y-3 text-sm leading-6">
-                    <p className="text-xs font-semibold text-amber-700">
-                      构成分析
-                    </p>
-                    <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700">
-                      {currentData.baseForm ?? selectedWord}
-                    </span>
-                    {structureSummary && (
-                      <p className="text-slate-700">{structureSummary}</p>
-                    )}
-                    {structureComponents.length > 0 && (
-                      <div className="space-y-2">
-                        {structureComponents.map((component, idx) => (
-                          <div
-                            key={`${component.text ?? component.type}-${idx}`}
-                            className="rounded-2xl border border-amber-100/60 bg-amber-50/30 p-3"
-                          >
-                            <p className="text-sm font-semibold text-amber-800">
-                              {component.text ||
-                                component.type ||
-                                `部分 ${idx + 1}`}
-                            </p>
-                            {component.type && (
-                              <p className="text-xs text-amber-600">
-                                {component.type}
-                              </p>
-                            )}
-                            {component.function && (
-                              <p className="text-sm text-slate-600">
-                                {component.function}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-
-                  {collocations.length > 0 && (
-                    <section className="space-y-3 text-sm leading-6">
-                      <p className="text-xs font-semibold text-amber-700">
-                        搭配
-                      </p>
-                      <div className="space-y-2">
-                        {collocations.map((item, idx) => (
-                          <div
-                            key={`${item.korean}-${idx}`}
-                            className="flex items-start justify-between gap-3 rounded-2xl bg-white p-3 shadow-inner shadow-amber-50 ring-1 ring-amber-100/80"
-                          >
-                            <div>
-                              <p className="font-medium text-slate-900">
-                                {item.korean}
-                              </p>
-                              <p className="text-sm text-slate-600">
-                                {item.chinese}
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => playPronunciation(item.korean)}
-                              disabled={
-                                audioState.status === "loading" &&
-                                audioState.target === item.korean
-                              }
-                              className="mt-1 inline-flex h-8 w-8 items-center justify-center rounded-full border border-amber-200 text-amber-600 transition hover:bg-amber-50 disabled:opacity-50"
-                              aria-label={`播放搭配 ${item.korean} 的读音`}
-                            >
-                              {audioState.status === "loading" &&
-                              audioState.target === item.korean ? (
-                                <span className="h-4 w-4 animate-spin rounded-full border-2 border-amber-200 border-t-transparent" />
-                              ) : (
-                                <span aria-hidden>🔊</span>
-                              )}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </section>
-                  )}
-
-                  {exampleEntries.length > 0 && (
-                    <section className="space-y-3 text-sm leading-6">
-                      <p className="text-xs font-semibold text-amber-700">
-                        例句
-                      </p>
-                      {exampleEntries.map((entry, idx) => (
-                        <div
-                          key={`${entry.korean}-${idx}`}
-                          className="flex items-start justify-between gap-3 rounded-2xl bg-slate-50 p-3 shadow-inner"
-                        >
-                          <div>
-                            <p className="font-medium text-slate-900">
-                              {entry.korean}
-                            </p>
-                            <p className="text-sm text-slate-600">
-                              {entry.chinese}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => playPronunciation(entry.korean)}
-                            disabled={
-                              audioState.status === "loading" &&
-                              audioState.target === entry.korean
-                            }
-                            className="mt-1 inline-flex h-8 w-8 items-center justify-center rounded-full border border-amber-200 text-amber-600 transition hover:bg-amber-50 disabled:opacity-50"
-                            aria-label={`播放例句 ${entry.korean} 的读音`}
-                          >
-                            {audioState.status === "loading" &&
-                            audioState.target === entry.korean ? (
-                              <span className="h-4 w-4 animate-spin rounded-full border-2 border-amber-200 border-t-transparent" />
-                            ) : (
-                              <span aria-hidden>🔊</span>
-                            )}
-                          </button>
-                        </div>
-                      ))}
-                    </section>
-                  )}
-
-                  {audioState.status === "error" && (
-                    <p className="text-xs text-red-500">
-                      {audioState.message}
-                    </p>
-                  )}
-                </div>
-              )}
+                退出登录
+              </Button>
             </div>
           </div>
-        )}
+        </DrawerContent>
+      </Drawer>
+
+      {/* 主页内容 */}
+      <div className="page h-full flex items-center justify-center bg-[#F5EFE1] p-4 sm:p-6 md:p-8">
+        <div className="w-full max-w-6xl">
+          {/* 标题 */}
+          <h1
+            className="text-3xl sm:text-4xl md:text-5xl font-bold text-center my-6 sm:my-8 md:my-10"
+            style={{ fontFamily: "WenXinXiLeTi, sans-serif" }}
+          >
+            你好，
+            {session.user.name || session.user.email?.split("@")[0] || "用户"}
+          </h1>
+
+          {/* 桌面端布局 - 横向排列 */}
+          <div className="hidden md:flex items-center justify-center gap-8 mb-12">
+            {/* 左侧圆圈 - 阅读量 */}
+            <div
+              className={`relative w-64 h-64 flex flex-col items-center justify-center ${
+                wiggle1 ? "circle-wiggle-1" : ""
+              }`}
+            >
+              <Image
+                src="/阅读量.svg"
+                alt="阅读量"
+                width={256}
+                height={256}
+                className="w-full h-full object-contain absolute"
+              />
+              <div className="relative z-10 flex flex-col items-center text-white">
+                <span
+                  className="text-lg font-medium mb-2"
+                  style={{ fontFamily: "WenXinXiLeTi, sans-serif" }}
+                >
+                  阅读量
+                </span>
+                <span className="text-3xl font-bold">{favoriteCount}</span>
+              </div>
+            </div>
+
+            {/* 右侧圆圈 - 单词 */}
+            <div
+              className={`relative w-64 h-64 flex flex-col items-center justify-center ${
+                wiggle2 ? "circle-wiggle-2" : ""
+              }`}
+            >
+              <Image
+                src="/单词.svg"
+                alt="单词"
+                width={256}
+                height={256}
+                className="w-full h-full object-contain absolute"
+              />
+              <div className="relative z-10 flex flex-col items-center text-white">
+                <span
+                  className="text-xl font-medium mb-2"
+                  style={{ fontFamily: "WenXinXiLeTi, sans-serif" }}
+                >
+                  单词
+                </span>
+                <span className="text-3xl font-bold">0</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 移动端布局 - 纵向排列 */}
+          <div className="flex md:hidden flex-col items-center gap-6 sm:gap-8 mb-6">
+            {/* 上方圆圈 - 阅读量 */}
+            <div
+              className={`relative w-36 h-36 sm:w-40 sm:h-40 flex flex-col items-center justify-center ${
+                wiggle1 ? "circle-wiggle-1" : ""
+              }`}
+            >
+              <Image
+                src="/阅读量.svg"
+                alt="阅读量"
+                width={160}
+                height={160}
+                className="w-full h-full object-contain absolute"
+              />
+              <div className="relative z-10 flex flex-col items-center text-white">
+                <span
+                  className="text-base sm:text-lg font-medium mb-1"
+                  style={{ fontFamily: "WenXinXiLeTi, sans-serif" }}
+                >
+                  阅读量
+                </span>
+                <span className="text-xl sm:text-2xl font-bold">
+                  {favoriteCount}
+                </span>
+              </div>
+            </div>
+
+            {/* 开始阅读按钮 - 在两个圆圈中间 */}
+            <div
+              className="cursor-pointer transition-transform hover:scale-110 flex flex-col items-center gap-2"
+              onClick={() => handleClick("/articleList")}
+            >
+              <span
+                className="text-base sm:text-lg font-medium"
+                style={{ fontFamily: "WenXinXiLeTi, sans-serif" }}
+              >
+                开始阅读
+              </span>
+              <Image
+                src="/开始阅读.svg"
+                alt="开始阅读"
+                width={100}
+                height={30}
+                className="w-20 sm:w-24 h-auto object-contain"
+              />
+            </div>
+
+            {/* 下方圆圈 - 单词 */}
+            <div
+              className={`relative w-36 h-36 sm:w-40 sm:h-40 flex flex-col items-center justify-center ${
+                wiggle2 ? "circle-wiggle-2" : ""
+              }`}
+            >
+              <Image
+                src="/单词.svg"
+                alt="单词"
+                width={160}
+                height={160}
+                className="w-full h-full object-contain absolute"
+              />
+              <div className="relative z-10 flex flex-col items-center text-white">
+                <span
+                  className="text-base sm:text-lg font-medium mb-1"
+                  style={{ fontFamily: "WenXinXiLeTi, sans-serif" }}
+                >
+                  单词
+                </span>
+                <span className="text-xl sm:text-2xl font-bold">0</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 桌面端开始阅读按钮 */}
+          <div
+            className="hidden md:flex justify-end cursor-pointer group"
+            onClick={() => handleClick("/articleList")}
+          >
+            <div className="flex flex-col items-center gap-2 transition-transform duration-300 group-hover:scale-110">
+              <span
+                className="text-xl font-medium"
+                style={{ fontFamily: "WenXinXiLeTi, sans-serif" }}
+              >
+                开始阅读
+              </span>
+              <Image
+                src="/开始阅读.svg"
+                alt="开始阅读"
+                width={120}
+                height={40}
+                className="w-28 h-auto object-contain"
+              />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

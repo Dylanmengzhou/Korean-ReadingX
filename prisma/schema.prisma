@@ -1,0 +1,113 @@
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+generator client {
+    provider = "prisma-client-js"
+}
+
+model Account {
+    id                String  @id @default(cuid())
+    userId            String  @map("user_id")
+    type              String
+    provider          String
+    providerAccountId String  @map("provider_account_id")
+    refresh_token     String? @db.Text
+    access_token      String? @db.Text
+    expires_at        Int?
+    token_type        String?
+    scope             String?
+    id_token          String? @db.Text
+    session_state     String?
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@unique([provider, providerAccountId])
+    @@map("accounts")
+}
+
+model Session {
+    id           String   @id @default(cuid())
+    sessionToken String   @unique @map("session_token")
+    userId       String   @map("user_id")
+    expires      DateTime
+    user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@map("sessions")
+}
+
+model User {
+    id            String         @id @default(cuid())
+    name          String?
+    email         String?        @unique
+    emailVerified DateTime?      @map("email_verified")
+    image         String?
+    password      String?
+    accounts      Account[]
+    sessions      Session[]
+    favorites     Favorite[]
+    wordFavorites WordFavorite[]
+
+    @@map("users")
+}
+
+model VerificationToken {
+    identifier String
+    token      String
+    expires    DateTime
+
+    @@unique([identifier, token])
+    @@map("verification_tokens")
+}
+
+model Article {
+    id                  String         @id
+    titleKo             String         @map("title_ko")
+    titleZh             String         @map("title_zh")
+    descriptionZh       String         @map("description_zh") @db.Text
+    tags                String[]
+    content             String         @db.Text // 原文（高级）
+    contentBeginner     String?        @map("content_beginner") @db.Text // 初级
+    contentIntermediate String?        @map("content_intermediate") @db.Text // 中级
+    contentAdvanced     String?        @map("content_advanced") @db.Text // 高级（可选，如果与 content 不同）
+    createdAt           DateTime       @default(now()) @map("created_at")
+    updatedAt           DateTime       @updatedAt @map("updated_at")
+    favorites           Favorite[]
+    wordFavorites       WordFavorite[]
+
+    @@map("articles")
+}
+
+model Favorite {
+    id        String   @id @default(cuid())
+    userId    String   @map("user_id")
+    articleId String   @map("article_id")
+    createdAt DateTime @default(now()) @map("created_at")
+
+    user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+    article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+    @@unique([userId, articleId])
+    @@map("favorites")
+}
+
+model WordFavorite {
+    id            String   @id @default(cuid())
+    userId        String   @map("user_id")
+    articleId     String   @map("article_id")
+    word          String
+    baseForm      String?  @map("base_form")
+    pronunciation String?
+    meanings      String[] // 存储中文释义数组
+    posPrimary    String?  @map("pos_primary")
+    posSecondary  String?  @map("pos_secondary")
+    summary       String?  @db.Text
+    createdAt     DateTime @default(now()) @map("created_at")
+
+    user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+    article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+    @@unique([userId, articleId, word])
+    @@map("word_favorites")
+}
