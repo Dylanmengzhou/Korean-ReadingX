@@ -61,6 +61,28 @@ model VerificationToken {
     @@map("verification_tokens")
 }
 
+model EmailVerification {
+    id        String   @id @default(cuid())
+    email     String
+    code      String
+    expires   DateTime
+    createdAt DateTime @default(now()) @map("created_at")
+
+    @@index([email])
+    @@map("email_verifications")
+}
+
+model PasswordReset {
+    id        String   @id @default(cuid())
+    email     String
+    code      String
+    expires   DateTime
+    createdAt DateTime @default(now()) @map("created_at")
+
+    @@index([email])
+    @@map("password_resets")
+}
+
 model Article {
     id                  String         @id
     titleKo             String         @map("title_ko")

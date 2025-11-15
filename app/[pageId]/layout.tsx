@@ -19,12 +19,22 @@ type ReadingSettingsContextType = {
   fontSize: number;
   showTranslation: boolean;
   difficulty: DifficultyLevel;
+  isPlayerOpen: boolean;
+  isAudioLoading: boolean;
+  openPlayer: () => void;
+  closePlayer: () => void;
+  setAudioLoadingState: (loading: boolean) => void;
 };
 
 const ReadingSettingsContext = createContext<ReadingSettingsContextType>({
   fontSize: 16,
   showTranslation: true,
   difficulty: "original",
+  isPlayerOpen: false,
+  isAudioLoading: false,
+  openPlayer: () => {},
+  closePlayer: () => {},
+  setAudioLoadingState: () => {},
 });
 
 export function useReadingSettings() {
@@ -42,12 +52,18 @@ export default function HomeLayout({
   const [isFavorited, setIsFavorited] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [difficulty, setDifficulty] = useState<DifficultyLevel>("original");
+  const [isPlayerOpen, setIsPlayerOpen] = useState(false);
+  const [isAudioLoading, setIsAudioLoading] = useState(false);
 
   // 从 Zustand store 获取阅读设置
   const fontSize = useReadingSettingsStore((state) => state.fontSize);
-  const showTranslation = useReadingSettingsStore((state) => state.showTranslation);
+  const showTranslation = useReadingSettingsStore(
+    (state) => state.showTranslation
+  );
   const setFontSize = useReadingSettingsStore((state) => state.setFontSize);
-  const setShowTranslation = useReadingSettingsStore((state) => state.setShowTranslation);
+  const setShowTranslation = useReadingSettingsStore(
+    (state) => state.setShowTranslation
+  );
 
   // 从路径中提取文章 ID
   const articleId = pathname?.split("/")[1];
@@ -116,7 +132,16 @@ export default function HomeLayout({
 
   return (
     <ReadingSettingsContext.Provider
-      value={{ fontSize, showTranslation, difficulty }}
+      value={{
+        fontSize,
+        showTranslation,
+        difficulty,
+        isPlayerOpen,
+        isAudioLoading,
+        openPlayer: () => setIsPlayerOpen(true),
+        closePlayer: () => setIsPlayerOpen(false),
+        setAudioLoadingState: setIsAudioLoading,
+      }}
     >
       <section className="min-h-screen bg-slate-50">
         <header className="sticky top-0 z-40 w-full border-b border-white/20 bg-white/60 py-2 backdrop-blur-sm rounded-b-md">
@@ -164,10 +189,16 @@ export default function HomeLayout({
                 type="button"
                 variant="ghost"
                 size="icon"
-                aria-label="耳机模式"
-                className="active:bg-transparent"
+                aria-label="朗读全文"
+                className="active:bg-transparent relative"
+                onClick={() => setIsPlayerOpen(true)}
+                disabled={isAudioLoading}
               >
-                <PiHeadphones size={20} />
+                {isAudioLoading ? (
+                  <div className="w-5 h-5 border-2 border-slate-400 border-t-slate-700 rounded-full animate-spin" />
+                ) : (
+                  <PiHeadphones size={20} />
+                )}
               </Button>
               <DifficultySelector
                 difficulty={difficulty}

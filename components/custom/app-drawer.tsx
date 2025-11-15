@@ -80,6 +80,13 @@ export function AppDrawer({ articleId }: AppDrawerProps = {}) {
         }
       );
       setWordFavorites((prev) => prev.filter((w) => w.word !== word));
+
+      // 触发自定义事件，通知其他组件单词已被删除
+      window.dispatchEvent(
+        new CustomEvent("wordFavoriteChanged", {
+          detail: { word, favorited: false, articleId },
+        })
+      );
     } catch (error) {
       console.error("删除单词收藏失败:", error);
     } finally {

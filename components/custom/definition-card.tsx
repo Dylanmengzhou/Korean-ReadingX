@@ -3,7 +3,15 @@
 import type { DefinitionState } from "@/lib/word";
 import { useState } from "react";
 import { MdFavorite, MdFavoriteBorder } from "react-icons/md";
+import { HiSpeakerWave } from "react-icons/hi2";
 import { useSession } from "next-auth/react";
+
+// 扩展 Window 类型
+declare global {
+  interface Window {
+    currentAudio?: HTMLAudioElement | null;
+  }
+}
 
 type DefinitionCardProps = {
   selectedWord: string;
@@ -24,6 +32,7 @@ export function DefinitionCard({
 }: DefinitionCardProps) {
   const { data: session } = useSession();
   const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   const currentData =
     definitionState.status === "ready" ? definitionState.data : null;
@@ -41,6 +50,58 @@ export function DefinitionCard({
     currentData?.posPrimary,
     currentData?.posSecondary,
   ].filter(Boolean) as string[];
+
+  // 韩语朗读函数 - 使用 Edge TTS
+  const handleSpeak = async (text: string) => {
+    // 停止当前正在播放的语音
+    if (window.currentAudio) {
+      window.currentAudio.pause();
+      window.currentAudio = null;
+    }
+
+    setIsSpeaking(true);
+
+    try {
+      // 调用后端 API 获取音频
+      const response = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          voice: "ko-KR-SunHiNeural", // 韩语女声（清晰自然）
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("TTS 请求失败");
+      }
+
+      // 获取音频数据
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+
+      // 播放音频
+      const audio = new Audio(audioUrl);
+      window.currentAudio = audio;
+
+      audio.onended = () => {
+        setIsSpeaking(false);
+        URL.revokeObjectURL(audioUrl);
+        window.currentAudio = null;
+      };
+
+      audio.onerror = () => {
+        setIsSpeaking(false);
+        URL.revokeObjectURL(audioUrl);
+        window.currentAudio = null;
+      };
+
+      await audio.play();
+    } catch (error) {
+      console.error("语音播放失败:", error);
+      setIsSpeaking(false);
+    }
+  };
 
   const handleFavoriteClick = async () => {
     if (!session?.user || !currentData || isTogglingFavorite) return;
@@ -61,6 +122,13 @@ export function DefinitionCard({
         );
         console.log("取消收藏响应:", res.status, await res.text());
         onFavoriteToggle?.(false);
+
+        // 触发自定义事件，通知其他组件单词已被删除
+        window.dispatchEvent(
+          new CustomEvent("wordFavoriteChanged", {
+            detail: { word: selectedWord, favorited: false, articleId },
+          })
+        );
       } else {
         // 添加收藏
         const payload = {
@@ -83,6 +151,13 @@ export function DefinitionCard({
         console.log("添加收藏响应:", res.status, responseText);
         if (res.ok) {
           onFavoriteToggle?.(true);
+
+          // 触发自定义事件，通知其他组件单词已被添加
+          window.dispatchEvent(
+            new CustomEvent("wordFavoriteChanged", {
+              detail: { word: selectedWord, favorited: true, articleId },
+            })
+          );
         } else {
           console.error("添加收藏失败:", responseText);
         }
@@ -146,10 +221,24 @@ export function DefinitionCard({
                 {currentData.pronunciation}
               </p>
             )}
-            <div className="flex flex-wrap items-baseline gap-2">
+            <div className="flex flex-wrap items-center gap-3">
               <p className="text-2xl font-semibold text-slate-900">
                 {selectedWord}
               </p>
+              {/* 单词朗读按钮 */}
+              <button
+                type="button"
+                onClick={() => handleSpeak(selectedWord)}
+                disabled={isSpeaking}
+                className="text-amber-600 transition hover:text-amber-800 disabled:opacity-50"
+                aria-label="朗读单词"
+                title="朗读单词"
+              >
+                <HiSpeakerWave
+                  size={20}
+                  className={isSpeaking ? "animate-pulse" : ""}
+                />
+              </button>
               {chineseMeaning && (
                 <p className="text-base text-slate-500">({chineseMeaning})</p>
               )}
@@ -209,8 +298,16 @@ export function DefinitionCard({
                 {collocations.map((item, idx) => (
                   <div
                     key={`${item.korean}-${idx}`}
-                    className="rounded-2xl bg-white p-3 shadow-inner shadow-amber-50 ring-1 ring-amber-100/80"
+                    className="relative rounded-2xl bg-white p-3 pr-10 shadow-inner shadow-amber-50 ring-1 ring-amber-100/80"
                   >
+                    <button
+                      type="button"
+                      onClick={() => handleSpeak(item.korean)}
+                      className="absolute right-2 top-2 text-amber-500 hover:text-amber-700 transition-colors"
+                      aria-label="朗读"
+                    >
+                      <HiSpeakerWave size={18} />
+                    </button>
                     <p className="font-medium text-slate-900">{item.korean}</p>
                     <p className="text-sm text-slate-600">{item.chinese}</p>
                   </div>
@@ -225,8 +322,16 @@ export function DefinitionCard({
               {exampleEntries.map((entry, idx) => (
                 <div
                   key={`${entry.korean}-${idx}`}
-                  className="rounded-2xl bg-slate-50 p-3 shadow-inner"
+                  className="relative rounded-2xl bg-slate-50 p-3 pr-10 shadow-inner"
                 >
+                  <button
+                    type="button"
+                    onClick={() => handleSpeak(entry.korean)}
+                    className="absolute right-2 top-2 text-amber-500 hover:text-amber-700 transition-colors"
+                    aria-label="朗读例句"
+                  >
+                    <HiSpeakerWave size={18} />
+                  </button>
                   <p className="font-medium text-slate-900">{entry.korean}</p>
                   <p className="text-sm text-slate-600">{entry.chinese}</p>
                 </div>

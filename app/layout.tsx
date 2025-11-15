@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Suspense } from "react";
 import "./globals.css";
 import { SessionProvider } from "@/components/providers/session-provider";
+import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,7 +30,18 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-50 `}
       >
-        <SessionProvider>{children}</SessionProvider>
+        <SessionProvider>
+          <Suspense
+            fallback={
+              <div className="min-h-screen flex items-center justify-center">
+                加载中...
+              </div>
+            }
+          >
+            {children}
+          </Suspense>
+        </SessionProvider>
+        <Toaster />
       </body>
     </html>
   );

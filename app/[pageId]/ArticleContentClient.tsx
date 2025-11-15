@@ -1,6 +1,10 @@
 "use client";
 
 import { DefinitionCard } from "@/components/custom/definition-card";
+import {
+  ArticleAudioPlayer,
+  type AudioPlayerControls,
+} from "@/components/custom/article-audio-player";
 import { FaRegClock } from "react-icons/fa";
 import {
   type ApiWordResponse,
@@ -78,7 +82,14 @@ export default function ArticleContentClient({
   const titleZh = article.titleZh;
 
   const { data: session } = useSession();
-  const { fontSize, showTranslation, difficulty } = useReadingSettings();
+  const {
+    fontSize,
+    showTranslation,
+    difficulty,
+    isPlayerOpen,
+    closePlayer,
+    setAudioLoadingState,
+  } = useReadingSettings();
 
   // 根据难度选择对应的内容
   const KOREAN_TEXT = useMemo(() => {
@@ -107,7 +118,9 @@ export default function ArticleContentClient({
     Record<string, WordDetail>
   >({});
   const [favoritedWords, setFavoritedWords] = useState<Set<string>>(new Set());
+  const [currentHighlightText, setCurrentHighlightText] = useState<string>(""); // 当前高亮的文本
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const audioControlsRef = useRef<AudioPlayerControls | null>(null); // 存储音频控制方法
   const [definitionState, setDefinitionState] = useState<DefinitionState>({
     status: "idle",
     data: null,
@@ -144,6 +157,39 @@ export default function ArticleContentClient({
     fetchFavoritedWords();
   }, [session, article.id]);
 
+  // 监听单词收藏状态变化事件
+  useEffect(() => {
+    const handleWordFavoriteChange = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        word: string;
+        favorited: boolean;
+        articleId: string;
+      }>;
+      const { word, favorited, articleId: eventArticleId } = customEvent.detail;
+
+      // 只处理当前文章的收藏变化
+      if (eventArticleId === article.id) {
+        setFavoritedWords((prev) => {
+          const newSet = new Set(prev);
+          if (favorited) {
+            newSet.add(word);
+          } else {
+            newSet.delete(word);
+          }
+          return newSet;
+        });
+      }
+    };
+
+    window.addEventListener("wordFavoriteChanged", handleWordFavoriteChange);
+    return () => {
+      window.removeEventListener(
+        "wordFavoriteChanged",
+        handleWordFavoriteChange
+      );
+    };
+  }, [article.id]);
+
   useEffect(() => {
     if (!selectedWord) {
       return;
@@ -154,6 +200,21 @@ export default function ArticleContentClient({
       document.body.style.overflow = previousOverflow;
     };
   }, [selectedWord]);
+
+  // 当高亮文本变化时，自动滚动到对应段落
+  useEffect(() => {
+    if (currentHighlightText && containerRef.current) {
+      // 查找包含高亮文本的段落
+      const paragraphs = containerRef.current.querySelectorAll("p");
+      for (const p of Array.from(paragraphs)) {
+        if (p.textContent?.includes(currentHighlightText.trim())) {
+          // 平滑滚动到该段落
+          p.scrollIntoView({ behavior: "smooth", block: "center" });
+          break;
+        }
+      }
+    }
+  }, [currentHighlightText]);
 
   const fetchKoreanDefinitions = async (word: string): Promise<WordDetail> => {
     const response = await fetch(`/api/naver?word=${encodeURIComponent(word)}`);
@@ -183,39 +244,70 @@ export default function ArticleContentClient({
     };
   };
 
+  // 用于处理单击/双击冲突的 timer
+  const clickTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const handleWordClick = async (word: string) => {
-    const normalizedWord = normalizeWord(word);
-    if (!normalizedWord) {
-      return;
+    // 清除之前的定时器
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
     }
 
-    setSelectedWord(word);
+    // 延迟执行单击，如果在延迟期间发生双击，则不执行
+    clickTimerRef.current = setTimeout(async () => {
+      const normalizedWord = normalizeWord(word);
+      if (!normalizedWord) {
+        return;
+      }
 
-    if (definitionCache[normalizedWord]) {
-      const cached = definitionCache[normalizedWord];
-      setDefinitionState({
-        status: "ready",
-        data: cached,
-      });
-      return;
+      setSelectedWord(word);
+
+      if (definitionCache[normalizedWord]) {
+        const cached = definitionCache[normalizedWord];
+        setDefinitionState({
+          status: "ready",
+          data: cached,
+        });
+        return;
+      }
+
+      setDefinitionState({ status: "loading", data: null });
+
+      try {
+        const result = await fetchKoreanDefinitions(word);
+        setDefinitionCache((prev) => ({ ...prev, [normalizedWord]: result }));
+        setDefinitionState({
+          status: "ready",
+          data: result,
+        });
+      } catch (error) {
+        setDefinitionState({
+          status: "error",
+          data: null,
+          message:
+            error instanceof Error
+              ? error.message
+              : "查询释义时出现了未知错误。",
+        });
+      }
+    }, 250); // 250ms 延迟，足够检测双击
+  };
+
+  // 处理双击单词 - 跳转到该句子播放
+  const handleWordDoubleClick = (sentence: string) => {
+    // 清除单击的定时器，防止打开释义卡片
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
     }
 
-    setDefinitionState({ status: "loading", data: null });
+    console.log(`[ArticleClient] 双击单词，句子: "${sentence}"`);
 
-    try {
-      const result = await fetchKoreanDefinitions(word);
-      setDefinitionCache((prev) => ({ ...prev, [normalizedWord]: result }));
-      setDefinitionState({
-        status: "ready",
-        data: result,
-      });
-    } catch (error) {
-      setDefinitionState({
-        status: "error",
-        data: null,
-        message:
-          error instanceof Error ? error.message : "查询释义时出现了未知错误。",
-      });
+    // 调用音频控制器跳转
+    if (audioControlsRef.current) {
+      audioControlsRef.current.seekToText(sentence);
+    } else {
+      console.log("[ArticleClient] 音频控制器未就绪");
     }
   };
 
@@ -284,49 +376,102 @@ export default function ArticleContentClient({
             }
 
             // 韩语段落 - 渲染可点击的单词
-            const tokens = tokenizeText(paragraph.text);
+            // 先按句号分割成句子
+            const sentences = paragraph.text
+              .split(/([.。!?！？])/)
+              .reduce((acc: string[], curr, idx, arr) => {
+                if (idx % 2 === 0 && curr.trim()) {
+                  const punctuation = arr[idx + 1] || "";
+                  acc.push(curr.trim() + punctuation);
+                }
+                return acc;
+              }, []);
+
             return (
               <p
                 key={`para-${paraIndex}`}
-                className="text-slate-900 leading-relaxed"
+                className="text-slate-900 leading-relaxed mb-4"
                 style={{ fontSize: `${fontSize}px` }}
               >
-                {tokens.map((token, tokenIndex) => {
-                  const normalized = normalizeWord(token);
-                  const isWord = Boolean(normalized);
+                {sentences.map((sentence, sentIndex) => {
+                  const tokens = tokenizeText(sentence);
 
-                  if (!isWord) {
-                    return (
-                      <span
-                        key={`${paraIndex}-${tokenIndex}`}
-                        aria-hidden={!token.trim()}
-                      >
-                        {token}
-                      </span>
+                  // 检查这个句子是否应该高亮
+                  // 清理逻辑：移除所有空白、标点、引号，只保留韩文和字母
+                  const cleanHighlight = currentHighlightText
+                    .replace(/[\s\p{P}"'"'"]/gu, "")
+                    .replace(/[\u4e00-\u9fff\u3400-\u4dbf]/g, "") // 移除中文
+                    .toLowerCase();
+                  const cleanSentence = sentence
+                    .replace(/[\s\p{P}"'"'"]/gu, "")
+                    .replace(/[\u4e00-\u9fff\u3400-\u4dbf]/g, "") // 移除中文
+                    .toLowerCase();
+
+                  // 使用includes进行更宽松的匹配
+                  const shouldHighlight =
+                    cleanHighlight.length > 3 &&
+                    (cleanSentence.includes(cleanHighlight) ||
+                      cleanHighlight.includes(cleanSentence));
+
+                  if (shouldHighlight) {
+                    console.log(
+                      `[Highlight] 匹配句子 ${paraIndex}-${sentIndex}: "${sentence}"`
                     );
+                    console.log(`[Highlight] 清理后字幕: "${cleanHighlight}"`);
+                    console.log(`[Highlight] 清理后句子: "${cleanSentence}"`);
                   }
 
-                  const isSelected =
-                    selectedWord && normalizeWord(selectedWord) === normalized;
-
-                  // 检查这个单词是否被收藏
-                  const isFavorited = favoritedWords.has(token);
-
                   return (
-                    <button
-                      key={`${paraIndex}-${tokenIndex}`}
-                      type="button"
-                      onClick={() => handleWordClick(token)}
-                      className={`inline cursor-pointer border-none bg-transparent p-0 text-left text-inherit underline-offset-4 focus-visible:outline-2 focus-visible:outline-indigo-500 ${
-                        isSelected
-                          ? "text-indigo-700 underline decoration-indigo-400"
-                          : isFavorited
-                          ? "text-slate-900 underline decoration-yellow-500 decoration-2 md:hover:underline md:hover:decoration-slate-400"
-                          : "text-slate-900 md:hover:underline md:hover:decoration-slate-400"
+                    <span
+                      key={`para-${paraIndex}-sent-${sentIndex}`}
+                      className={`inline transition-all duration-200 ${
+                        shouldHighlight ? "bg-yellow-200/70 rounded px-1" : ""
                       }`}
                     >
-                      {token}
-                    </button>
+                      {tokens.map((token, tokenIndex) => {
+                        const normalized = normalizeWord(token);
+                        const isWord = Boolean(normalized);
+
+                        if (!isWord) {
+                          return (
+                            <span
+                              key={`${paraIndex}-${sentIndex}-${tokenIndex}`}
+                              aria-hidden={!token.trim()}
+                            >
+                              {token}
+                            </span>
+                          );
+                        }
+
+                        const isSelected =
+                          selectedWord &&
+                          normalizeWord(selectedWord) === normalized;
+
+                        // 检查这个单词是否被收藏
+                        const isFavorited = favoritedWords.has(token);
+
+                        return (
+                          <button
+                            key={`${paraIndex}-${sentIndex}-${tokenIndex}`}
+                            type="button"
+                            onClick={() => handleWordClick(token)}
+                            onDoubleClick={() =>
+                              handleWordDoubleClick(sentence)
+                            }
+                            className={`inline cursor-pointer border-none bg-transparent p-0 text-left text-inherit underline-offset-4 focus-visible:outline-2 focus-visible:outline-indigo-500 ${
+                              isSelected
+                                ? "text-indigo-700 underline decoration-indigo-400"
+                                : isFavorited
+                                ? "text-slate-900 underline decoration-yellow-500 decoration-2 md:hover:underline md:hover:decoration-slate-400"
+                                : "text-slate-900 md:hover:underline md:hover:decoration-slate-400"
+                            }`}
+                          >
+                            {token}
+                          </button>
+                        );
+                      })}
+                      {sentIndex < sentences.length - 1 && " "}
+                    </span>
                   );
                 })}
               </p>
@@ -352,6 +497,19 @@ export default function ArticleContentClient({
             />
           </div>
         )}
+
+        <ArticleAudioPlayer
+          content={KOREAN_TEXT}
+          isOpen={isPlayerOpen}
+          onClose={closePlayer}
+          onCurrentTextChange={setCurrentHighlightText}
+          onPlayerReady={(controls) => {
+            audioControlsRef.current = controls;
+            console.log("[ArticleClient] 音频控制器已就绪");
+          }}
+          onLoadingStateChange={setAudioLoadingState}
+          autoPreload={true}
+        />
       </div>
     </div>
   );

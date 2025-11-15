@@ -9,6 +9,7 @@ export const authConfig = {
   pages: {
     signIn: "/auth/login",
     newUser: "/auth/register",
+    error: "/auth/login", // 错误时重定向到登录页
   },
   callbacks: {
     async jwt({ token, user }) {

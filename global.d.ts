@@ -1,4 +1,6 @@
 declare module "*.css";
+declare module "*.css?*";
+declare module "./globals.css";
 
 import { DefaultSession } from "next-auth";
 
