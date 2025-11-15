@@ -21,8 +21,8 @@ export async function POST(req: NextRequest) {
       `[TTS-Article] 开始生成语音，文本长度: ${truncatedText.length}`
     );
 
-    // 生成临时文件名
-    const tempDir = path.join(process.cwd(), "tmp");
+    // 生成临时文件名 - 使用系统临时目录（Vercel 环境兼容）
+    const tempDir = "/tmp";
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
