@@ -9,26 +9,26 @@ export async function POST(req: NextRequest) {
     }
 
     // 在 Vercel 上调用 Python serverless function
-    const baseUrl = process.env.VERCEL_URL 
+    const baseUrl = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000';
-    
+      : "http://localhost:3000";
+
     const response = await fetch(`${baseUrl}/api/tts-python`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({ text, voice }),
     });
 
     if (!response.ok) {
-      throw new Error('Python TTS 调用失败');
+      throw new Error("Python TTS 调用失败");
     }
 
     const data = await response.json();
-    
+
     // 解码 base64 音频数据
-    const audioBuffer = Buffer.from(data.audio, 'base64');
+    const audioBuffer = Buffer.from(data.audio, "base64");
 
     // 返回音频数据
     return new NextResponse(audioBuffer, {

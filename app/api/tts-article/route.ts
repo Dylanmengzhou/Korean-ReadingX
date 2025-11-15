@@ -18,28 +18,28 @@ export async function POST(req: NextRequest) {
     );
 
     // 在 Vercel 上调用 Python serverless function
-    const baseUrl = process.env.VERCEL_URL 
+    const baseUrl = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000';
-    
+      : "http://localhost:3000";
+
     const response = await fetch(`${baseUrl}/api/tts-python-subtitles`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify({ 
-        text: truncatedText, 
+      body: JSON.stringify({
+        text: truncatedText,
         voice,
-        withSubtitles: true 
+        withSubtitles: true,
       }),
     });
 
     if (!response.ok) {
-      throw new Error('Python TTS 调用失败');
+      throw new Error("Python TTS 调用失败");
     }
 
     const data = await response.json();
-    
+
     console.log(`[TTS-Article] 语音生成完成`);
 
     // 按句号分割文本为句子数组
@@ -49,7 +49,9 @@ export async function POST(req: NextRequest) {
       .filter((s) => s.length > 0);
 
     console.log(
-      `[TTS-Article] 返回数据，音频大小: ${data.audio.length} bytes, 字幕数: ${data.subtitles?.length || 0}`
+      `[TTS-Article] 返回数据，音频大小: ${data.audio.length} bytes, 字幕数: ${
+        data.subtitles?.length || 0
+      }`
     );
     console.log(`[TTS-Article] 句子数: ${sentences.length}`);
 
