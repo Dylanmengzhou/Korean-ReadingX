@@ -1,8 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { spawn } from "child_process";
-import path from "path";
-import fs from "fs";
-import { randomBytes } from "crypto";
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,45 +8,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "文本不能为空" }, { status: 400 });
     }
 
-    // 生成临时文件名 - 使用系统临时目录（Vercel 环境兼容）
-    const tempDir = "/tmp";
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
-    const fileName = `tts_${randomBytes(8).toString("hex")}.mp3`;
-    const filePath = path.join(tempDir, fileName);
-
-    // 调用 edge-tts 命令行工具
-    const edgeTTS = spawn("edge-tts", [
-      "--text",
-      text,
-      "--voice",
-      voice,
-      "--write-media",
-      filePath,
-    ]);
-
-    // 等待进程完成
-    await new Promise<void>((resolve, reject) => {
-      edgeTTS.on("close", (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error(`edge-tts exited with code ${code}`));
-        }
-      });
-
-      edgeTTS.on("error", (err) => {
-        reject(err);
-      });
+    // 在 Vercel 上调用 Python serverless function
+    const baseUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}`
+      : 'http://localhost:3000';
+    
+    const response = await fetch(`${baseUrl}/api/tts-python`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text, voice }),
     });
 
-    // 读取生成的音频文件
-    const audioBuffer = fs.readFileSync(filePath);
+    if (!response.ok) {
+      throw new Error('Python TTS 调用失败');
+    }
 
-    // 删除临时文件
-    fs.unlinkSync(filePath);
+    const data = await response.json();
+    
+    // 解码 base64 音频数据
+    const audioBuffer = Buffer.from(data.audio, 'base64');
 
     // 返回音频数据
     return new NextResponse(audioBuffer, {

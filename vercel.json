@@ -1,0 +1,18 @@
+{
+  "functions": {
+    "app/api/tts/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/tts-article/route.ts": {
+      "maxDuration": 60
+    },
+    "api/tts-python.py": {
+      "runtime": "python3.9",
+      "maxDuration": 30
+    },
+    "api/tts-python-subtitles.py": {
+      "runtime": "python3.9",
+      "maxDuration": 60
+    }
+  }
+}
