@@ -24,6 +24,10 @@ export const authConfig = {
       }
       return session;
     },
+    async signIn() {
+      // 确保所有登录方式都能正常工作
+      return true;
+    },
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
       const isOnAuthPage = nextUrl.pathname.startsWith("/auth");
